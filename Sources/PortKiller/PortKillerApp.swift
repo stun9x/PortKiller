@@ -341,31 +341,33 @@ struct ContentView: View {
                         }
                     } else {
                         ForEach(filteredNodeModules) { module in
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text(formatBytes(module.sizeBytes))
-                                        .font(.system(.body, design: .monospaced).bold())
-                                        .frame(width: 78, alignment: .leading)
-                                    Text(verbatim: "\(module.packageCount) packages")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                }
-                                Text(module.path)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                                HStack {
-                                    Spacer()
-                                    Button {
-                                        moduleToDelete = module
-                                    } label: {
-                                        Image(systemName: "trash")
-                                            .foregroundStyle(.red)
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(formatBytes(module.sizeBytes))
+                                            .font(.system(.body, design: .monospaced).bold())
+                                            .frame(width: 78, alignment: .leading)
+                                        Text(verbatim: "\(module.packageCount) packages")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                        Spacer()
                                     }
-                                    .buttonStyle(.borderless)
-                                    .help("Xoá thư mục node_modules này")
+                                    Text(module.path)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
                                 }
+                                Spacer(minLength: 4)
+                                Button {
+                                    moduleToDelete = module
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .frame(width: 28, height: 28)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                                .help("Xoá thư mục node_modules này")
                             }
+                            .padding(.vertical, 4)
                         }
                     }
                 }
@@ -391,7 +393,7 @@ struct ContentView: View {
             }
         }
         .padding(10)
-        .frame(width: 440, height: 520)
+        .frame(width: 560, height: 600)
         .onAppear { monitor.start() }
         .onChange(of: tab) { newTab in
             if newTab == .nodeModules { monitor.refreshNodeModules() }
