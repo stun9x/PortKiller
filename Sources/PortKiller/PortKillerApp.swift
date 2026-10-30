@@ -1,0 +1,268 @@
+import SwiftUI
+import AppKit
+import Darwin
+
+// MARK: - Models
+
+struct PortInfo: Identifiable, Hashable {
+    var id: String { "\(pid)-\(proto)-\(port)-\(address)" }
+    let pid: Int32
+    let command: String
+    let user: String
+    let proto: String
+    let address: String
+    let port: Int
+}
+
+struct ProcInfo: Identifiable, Hashable {
+    var id: Int32 { pid }
+    let pid: Int32
+    let name: String
+    let user: String
+    let cpu: Double
+    let memMB: Double
+}
+
+// MARK: - Shell helper
+
+func run(_ path: String, _ args: [String]) -> String {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: path)
+    p.arguments = args
+    let out = Pipe()
+    p.standardOutput = out
+    p.standardError = Pipe()
+    do { try p.run() } catch { return "" }
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    return String(decoding: data, as: UTF8.self)
+}
+
+// MARK: - Scanning
+
+func scanPorts() -> [PortInfo] {
+    var result: [PortInfo] = []
+    var seen = Set<String>()
+
+    // TCP LISTEN + UDP
+    let outputs: [(String, String)] = [
+        ("TCP", run("/usr/sbin/lsof", ["-nP", "-iTCP", "-sTCP:LISTEN"])),
+        ("UDP", run("/usr/sbin/lsof", ["-nP", "-iUDP"]))
+    ]
+
+    for (proto, text) in outputs {
+        for line in text.split(separator: "\n").dropFirst() {
+            var tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+            guard tokens.count >= 9, let pid = Int32(tokens[1]) else { continue }
+            if tokens.last == "(LISTEN)" { tokens.removeLast() }
+            // NAME có thể là "*:3000" hoặc "127.0.0.1:8080" hoặc "[::1]:3000" hoặc "a->b"
+            let name = tokens.last ?? ""
+            if name.contains("->") { continue } // bỏ kết nối đã thiết lập
+            guard let colon = name.lastIndex(of: ":"),
+                  let port = Int(name[name.index(after: colon)...]) else { continue }
+            let address = String(name[..<colon])
+            let command = tokens[0].replacingOccurrences(of: "\\x20", with: " ")
+            let info = PortInfo(pid: pid, command: command, user: tokens[2],
+                                proto: proto, address: address.isEmpty ? "*" : address, port: port)
+            if seen.insert(info.id).inserted { result.append(info) }
+        }
+    }
+    return result.sorted { $0.port < $1.port }
+}
+
+func scanProcesses() -> [ProcInfo] {
+    let text = run("/bin/ps", ["-axo", "pid=,pcpu=,rss=,user=,comm="])
+    var result: [ProcInfo] = []
+    for line in text.split(separator: "\n") {
+        let parts = line.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: true)
+        guard parts.count == 5,
+              let pid = Int32(parts[0]),
+              let cpu = Double(parts[1]),
+              let rss = Double(parts[2]) else { continue }
+        let name = (String(parts[4]) as NSString).lastPathComponent
+        result.append(ProcInfo(pid: pid, name: name, user: String(parts[3]),
+                               cpu: cpu, memMB: rss / 1024))
+    }
+    return result.sorted { $0.cpu > $1.cpu }
+}
+
+// MARK: - Monitor
+
+@MainActor
+final class Monitor: ObservableObject {
+    @Published var ports: [PortInfo] = []
+    @Published var processes: [ProcInfo] = []
+    @Published var message: String?
+
+    private var timer: Timer?
+
+    func start() {
+        refresh()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    func refresh() {
+        Task.detached(priority: .utility) {
+            let p = scanPorts()
+            let pr = scanProcesses()
+            await MainActor.run {
+                self.ports = p
+                self.processes = pr
+            }
+        }
+    }
+
+    func kill(pid: Int32, name: String, force: Bool) {
+        let sig = force ? SIGKILL : SIGTERM
+        if Darwin.kill(pid, sig) == 0 {
+            message = "Đã gửi \(force ? "SIGKILL" : "SIGTERM") tới \(name) (\(pid))"
+        } else {
+            let err = String(cString: strerror(errno))
+            message = "Không kill được \(name) (\(pid)): \(err)"
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.refresh() }
+    }
+}
+
+// MARK: - UI
+
+enum Tab: String, CaseIterable, Identifiable {
+    case ports = "Ports"
+    case processes = "Processes"
+    var id: String { rawValue }
+}
+
+struct KillMenu: View {
+    let pid: Int32
+    let name: String
+    @ObservedObject var monitor: Monitor
+
+    var body: some View {
+        Menu {
+            Button("Force Kill (SIGKILL)", role: .destructive) {
+                monitor.kill(pid: pid, name: name, force: true)
+            }
+        } label: {
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
+        } primaryAction: {
+            monitor.kill(pid: pid, name: name, force: false)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Click: kill (SIGTERM) • Giữ chuột: Force Kill")
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var monitor = Monitor()
+    @State private var tab: Tab = .ports
+    @State private var query = ""
+
+    var filteredPorts: [PortInfo] {
+        guard !query.isEmpty else { return monitor.ports }
+        let q = query.lowercased()
+        return monitor.ports.filter {
+            $0.command.lowercased().contains(q) || String($0.port).contains(q) || String($0.pid).contains(q)
+        }
+    }
+
+    var filteredProcesses: [ProcInfo] {
+        guard !query.isEmpty else { return monitor.processes }
+        let q = query.lowercased()
+        return monitor.processes.filter {
+            $0.name.lowercased().contains(q) || String($0.pid).contains(q)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Picker("", selection: $tab) {
+                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            TextField("Tìm theo tên, port, PID…", text: $query)
+                .textFieldStyle(.roundedBorder)
+
+            List {
+                if tab == .ports {
+                    ForEach(filteredPorts) { p in
+                        HStack {
+                            Text(verbatim: ":" + String(p.port))
+                                .font(.system(.body, design: .monospaced).bold())
+                                .frame(width: 64, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(p.command).lineLimit(1)
+                                Text(verbatim: "\(p.proto) • \(p.address) • PID \(String(p.pid)) • \(p.user)")
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer()
+                            KillMenu(pid: p.pid, name: p.command, monitor: monitor)
+                        }
+                    }
+                } else {
+                    ForEach(filteredProcesses) { p in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(p.name).lineLimit(1)
+                                Text(verbatim: "PID \(String(p.pid)) • \(p.user)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(String(format: "%.1f%%", p.cpu))
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 52, alignment: .trailing)
+                            Text(String(format: "%.0f MB", p.memMB))
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(width: 66, alignment: .trailing)
+                            KillMenu(pid: p.pid, name: p.name, monitor: monitor)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+
+            HStack {
+                Text(monitor.message ?? (tab == .ports
+                     ? "\(filteredPorts.count) ports đang mở"
+                     : "\(filteredProcesses.count) tiến trình"))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                Button { monitor.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless)
+                Button { NSApplication.shared.terminate(nil) } label: { Image(systemName: "power") }
+                    .buttonStyle(.borderless)
+            }
+        }
+        .padding(10)
+        .frame(width: 440, height: 520)
+        .onAppear { monitor.start() }
+        .onDisappear { monitor.stop() }
+    }
+}
+
+// MARK: - App
+
+@main
+struct PortKillerApp: App {
+    init() {
+        NSApplication.shared.setActivationPolicy(.accessory) // không hiện icon Dock
+    }
+
+    var body: some Scene {
+        MenuBarExtra("PortKiller", systemImage: "bolt.horizontal.circle") {
+            ContentView()
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
