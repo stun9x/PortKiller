@@ -269,7 +269,22 @@ struct ContentView: View {
     @StateObject private var monitor = Monitor()
     @State private var tab: Tab = .ports
     @State private var query = ""
-    @State private var moduleToDelete: NodeModulesInfo?
+
+    func confirmDelete(_ module: NodeModulesInfo) {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Xoá node_modules?"
+            alert.informativeText = "Thư mục này sẽ bị xoá vĩnh viễn:\n\(module.path)\n\nKích thước: \(formatBytes(module.sizeBytes))"
+            alert.addButton(withTitle: "Xoá")
+            alert.addButton(withTitle: "Huỷ")
+
+            NSApp.activate(ignoringOtherApps: true)
+            if alert.runModal() == .alertFirstButtonReturn {
+                monitor.deleteNodeModules(module)
+            }
+        }
+    }
 
     var filteredPorts: [PortInfo] {
         guard !query.isEmpty else { return monitor.ports }
@@ -358,7 +373,7 @@ struct ContentView: View {
                                 }
                                 Spacer(minLength: 4)
                                 Button {
-                                    moduleToDelete = module
+                                    confirmDelete(module)
                                 } label: {
                                     Image(systemName: "trash")
                                         .frame(width: 28, height: 28)
@@ -397,16 +412,6 @@ struct ContentView: View {
         .onAppear { monitor.start() }
         .onChange(of: tab) { newTab in
             if newTab == .nodeModules { monitor.refreshNodeModules() }
-        }
-        .alert(item: $moduleToDelete) { module in
-            Alert(
-                title: Text("Xoá node_modules?"),
-                message: Text("Thư mục này sẽ bị xoá vĩnh viễn:\n\(module.path)\n\nKích thước: \(formatBytes(module.sizeBytes))"),
-                primaryButton: .destructive(Text("Xoá")) {
-                    monitor.deleteNodeModules(module)
-                },
-                secondaryButton: .cancel(Text("Huỷ"))
-            )
         }
         .onDisappear { monitor.stop() }
     }
