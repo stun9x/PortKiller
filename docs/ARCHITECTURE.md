@@ -58,6 +58,8 @@ RSS được đổi từ KB sang MB. Tên process được rút gọn về compo
 
 Quét `node_modules` chỉ chạy khi người dùng mở tab tương ứng hoặc bấm refresh. Root mặc định là thư mục home; các thư mục con được tính kích thước đệ quy và sắp xếp giảm dần.
 
+Nút xoá yêu cầu xác nhận và chỉ chấp nhận thư mục có tên chính xác là `node_modules`, nằm bên dưới home directory và không phải symbolic link.
+
 ## Kill process
 
 - Click chính: gửi `SIGTERM`, cho process cơ hội shutdown đúng cách.

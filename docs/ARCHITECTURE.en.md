@@ -58,6 +58,8 @@ RSS is converted from KB to MB. The process name is reduced to the final path co
 
 The `node_modules` scan runs only when the corresponding tab is opened or manually refreshed. It uses the home folder as its root, calculates recursive sizes, and sorts results in descending order.
 
+The delete button requires confirmation and only accepts a directory named exactly `node_modules`, located below the home directory and not a symbolic link.
+
 ## Process termination
 
 - Primary click: sends `SIGTERM`, allowing the process to shut down cleanly.

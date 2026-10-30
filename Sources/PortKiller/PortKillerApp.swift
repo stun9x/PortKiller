@@ -197,6 +197,31 @@ final class Monitor: ObservableObject {
         }
     }
 
+    func deleteNodeModules(_ module: NodeModulesInfo) {
+        let url = URL(fileURLWithPath: module.path, isDirectory: true).standardizedFileURL
+        let homePath = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).standardizedFileURL.path
+        let isInsideHome = url.path.hasPrefix(homePath + "/")
+        let isNodeModules = url.lastPathComponent == "node_modules"
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+        let values = try? url.resourceValues(forKeys: keys)
+
+        guard isInsideHome,
+              isNodeModules,
+              values?.isDirectory == true,
+              values?.isSymbolicLink != true else {
+            message = "Không xoá được: đường dẫn không hợp lệ"
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: url)
+            message = "Đã xoá node_modules: \(url.deletingLastPathComponent().lastPathComponent)"
+            refreshNodeModules()
+        } catch {
+            message = "Không xoá được node_modules: \(error.localizedDescription)"
+        }
+    }
+
     func kill(pid: Int32, name: String, force: Bool) {
         let sig = force ? SIGKILL : SIGTERM
         if Darwin.kill(pid, sig) == 0 {
@@ -244,6 +269,7 @@ struct ContentView: View {
     @StateObject private var monitor = Monitor()
     @State private var tab: Tab = .ports
     @State private var query = ""
+    @State private var moduleToDelete: NodeModulesInfo?
 
     var filteredPorts: [PortInfo] {
         guard !query.isEmpty else { return monitor.ports }
@@ -328,6 +354,17 @@ struct ContentView: View {
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
+                                HStack {
+                                    Spacer()
+                                    Button {
+                                        moduleToDelete = module
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .foregroundStyle(.red)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Xoá thư mục node_modules này")
+                                }
                             }
                         }
                     }
@@ -358,6 +395,16 @@ struct ContentView: View {
         .onAppear { monitor.start() }
         .onChange(of: tab) { newTab in
             if newTab == .nodeModules { monitor.refreshNodeModules() }
+        }
+        .alert(item: $moduleToDelete) { module in
+            Alert(
+                title: Text("Xoá node_modules?"),
+                message: Text("Thư mục này sẽ bị xoá vĩnh viễn:\n\(module.path)\n\nKích thước: \(formatBytes(module.sizeBytes))"),
+                primaryButton: .destructive(Text("Xoá")) {
+                    monitor.deleteNodeModules(module)
+                },
+                secondaryButton: .cancel(Text("Huỷ"))
+            )
         }
         .onDisappear { monitor.stop() }
     }

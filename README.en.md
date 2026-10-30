@@ -56,7 +56,7 @@ The **Processes** tab lists processes sorted by descending CPU usage, with user,
 
 ### Node Modules
 
-The **Node Modules** tab scans for `node_modules` directories under the home folder, calculates their recursive sizes, and sorts them from largest to smallest. Each row shows the size, direct package count, and path. You can search by path and refresh manually.
+The **Node Modules** tab scans for `node_modules` directories under the home folder, calculates their recursive sizes, and sorts them from largest to smallest. Each row shows the size, direct package count, and path. You can search by path, refresh manually, or click the trash button to delete a directory after confirmation.
 
 ## Architecture
 

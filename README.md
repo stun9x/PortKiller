@@ -56,7 +56,7 @@ Tab **Processes** hiển thị các tiến trình được sắp xếp theo CPU 
 
 ### Node Modules
 
-Tab **Node Modules** quét các thư mục `node_modules` bên dưới thư mục home, tính kích thước đệ quy và sắp xếp từ lớn đến bé. Mỗi dòng hiển thị kích thước, số package trực tiếp và đường dẫn. Có thể tìm kiếm theo đường dẫn và refresh thủ công.
+Tab **Node Modules** quét các thư mục `node_modules` bên dưới thư mục home, tính kích thước đệ quy và sắp xếp từ lớn đến bé. Mỗi dòng hiển thị kích thước, số package trực tiếp và đường dẫn. Có thể tìm kiếm, refresh thủ công hoặc bấm nút thùng rác để xoá sau khi xác nhận.
 
 ## Kiến trúc
 
