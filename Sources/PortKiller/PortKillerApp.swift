@@ -164,6 +164,7 @@ final class Monitor: ObservableObject {
     @Published var message: String?
 
     private var timer: Timer?
+    private var nodeModulesScanID = UUID()
 
     func start() {
         refresh()
@@ -191,9 +192,14 @@ final class Monitor: ObservableObject {
 
     func refreshNodeModules() {
         let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        let scanID = UUID()
+        nodeModulesScanID = scanID
         Task.detached(priority: .utility) {
             let modules = scanNodeModules(in: root)
-            await MainActor.run { self.nodeModules = modules }
+            await MainActor.run {
+                guard self.nodeModulesScanID == scanID else { return }
+                self.nodeModules = modules
+            }
         }
     }
 
@@ -215,6 +221,8 @@ final class Monitor: ObservableObject {
 
         do {
             try FileManager.default.removeItem(at: url)
+            nodeModulesScanID = UUID()
+            nodeModules.removeAll { $0.path == url.path }
             message = "Đã xoá node_modules: \(url.deletingLastPathComponent().lastPathComponent)"
             refreshNodeModules()
         } catch {
