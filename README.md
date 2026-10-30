@@ -1,5 +1,7 @@
 # PortKiller
 
+[VI](README.md) | [EN](README.en.md)
+
 Ứng dụng macOS chạy trên menu bar để theo dõi port đang mở và quản lý các tiến trình đang chạy.
 
 PortKiller giúp bạn:

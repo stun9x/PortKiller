@@ -1,5 +1,7 @@
 # Hướng dẫn phát triển và phát hành
 
+[VI](DEVELOPMENT.md) | [EN](DEVELOPMENT.en.md)
+
 ## Môi trường
 
 1. Cài Xcode hoặc Swift toolchain có hỗ trợ macOS 13.

@@ -1,5 +1,7 @@
 # Kiến trúc PortKiller
 
+[VI](ARCHITECTURE.md) | [EN](ARCHITECTURE.en.md)
+
 ## Tổng quan
 
 PortKiller là một macOS menu-bar utility viết bằng SwiftUI. Ứng dụng không có cửa sổ chính độc lập và đặt activation policy là `accessory`, vì vậy không hiện icon trên Dock.
