@@ -27,6 +27,8 @@ Monitor (@MainActor, ObservableObject)
 
 `NodeModulesInfo` represents a `node_modules` directory with its path, recursive byte size, and direct package count.
 
+`CacheInfo` represents a known npm, Yarn, pnpm, Corepack, or Chrome cache. The app scans only these predefined paths and sorts them by descending size.
+
 Both models conform to `Identifiable` and `Hashable` so they can be used directly in SwiftUI `ForEach` views.
 
 ## Port scanning
@@ -59,6 +61,8 @@ RSS is converted from KB to MB. The process name is reduced to the final path co
 The `node_modules` scan runs only when the corresponding tab is opened or manually refreshed. It uses the home folder as its root, calculates recursive sizes, and sorts results in descending order.
 
 The delete button requires confirmation and only accepts a directory named exactly `node_modules`, located below the home directory and not a symbolic link.
+
+The **Caches** tab also requires confirmation before deletion and accepts only paths from the app's predefined cache list.
 
 ## Process termination
 

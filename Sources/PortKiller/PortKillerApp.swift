@@ -30,6 +30,13 @@ struct NodeModulesInfo: Identifiable, Hashable {
     let packageCount: Int
 }
 
+struct CacheInfo: Identifiable, Hashable {
+    var id: String { path }
+    let name: String
+    let path: String
+    let sizeBytes: Int64
+}
+
 // MARK: - Shell helper
 
 func run(_ path: String, _ args: [String]) -> String {
@@ -150,6 +157,35 @@ func scanNodeModules(in root: URL) -> [NodeModulesInfo] {
     return result.sorted { $0.sizeBytes > $1.sizeBytes }
 }
 
+func cacheLocations() -> [(name: String, url: URL)] {
+    let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    let caches = home.appendingPathComponent("Library/Caches", isDirectory: true)
+    return [
+        ("npm cache", home.appendingPathComponent(".npm", isDirectory: true)),
+        ("Yarn cache", caches.appendingPathComponent("Yarn", isDirectory: true)),
+        ("pnpm store", home.appendingPathComponent("Library/pnpm/store", isDirectory: true)),
+        ("Corepack cache", caches.appendingPathComponent("node/corepack", isDirectory: true)),
+        ("Chrome cache", caches.appendingPathComponent("Google/Chrome", isDirectory: true)),
+        ("Chrome Canary cache", caches.appendingPathComponent("Google/Chrome Canary", isDirectory: true)),
+        ("Chrome Beta cache", caches.appendingPathComponent("Google/Chrome Beta", isDirectory: true)),
+        ("Chrome Dev cache", caches.appendingPathComponent("Google/Chrome Dev", isDirectory: true))
+    ]
+}
+
+func scanCaches() -> [CacheInfo] {
+    let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+    return cacheLocations().compactMap { location in
+        guard let values = try? location.url.resourceValues(forKeys: keys),
+              values.isDirectory == true,
+              values.isSymbolicLink != true else { return nil }
+        return CacheInfo(
+            name: location.name,
+            path: location.url.path,
+            sizeBytes: directorySize(location.url)
+        )
+    }.sorted { $0.sizeBytes > $1.sizeBytes }
+}
+
 func formatBytes(_ bytes: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
 }
@@ -161,10 +197,12 @@ final class Monitor: ObservableObject {
     @Published var ports: [PortInfo] = []
     @Published var processes: [ProcInfo] = []
     @Published var nodeModules: [NodeModulesInfo] = []
+    @Published var caches: [CacheInfo] = []
     @Published var message: String?
 
     private var timer: Timer?
     private var nodeModulesScanID = UUID()
+    private var cacheScanID = UUID()
 
     func start() {
         refresh()
@@ -230,6 +268,42 @@ final class Monitor: ObservableObject {
         }
     }
 
+    func refreshCaches() {
+        let scanID = UUID()
+        cacheScanID = scanID
+        Task.detached(priority: .utility) {
+            let caches = scanCaches()
+            await MainActor.run {
+                guard self.cacheScanID == scanID else { return }
+                self.caches = caches
+            }
+        }
+    }
+
+    func deleteCache(_ cache: CacheInfo) {
+        let allowedPaths = Set(cacheLocations().map { $0.url.standardizedFileURL.path })
+        let url = URL(fileURLWithPath: cache.path, isDirectory: true).standardizedFileURL
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+        let values = try? url.resourceValues(forKeys: keys)
+
+        guard allowedPaths.contains(url.path),
+              values?.isDirectory == true,
+              values?.isSymbolicLink != true else {
+            message = "Không xoá được: cache không hợp lệ"
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: url)
+            cacheScanID = UUID()
+            caches.removeAll { $0.path == url.path }
+            message = "Đã xoá \(cache.name)"
+            refreshCaches()
+        } catch {
+            message = "Không xoá được \(cache.name): \(error.localizedDescription)"
+        }
+    }
+
     func kill(pid: Int32, name: String, force: Bool) {
         let sig = force ? SIGKILL : SIGTERM
         if Darwin.kill(pid, sig) == 0 {
@@ -248,6 +322,7 @@ enum Tab: String, CaseIterable, Identifiable {
     case ports = "Ports"
     case processes = "Processes"
     case nodeModules = "Node Modules"
+    case caches = "Caches"
     var id: String { rawValue }
 }
 
@@ -278,18 +353,18 @@ struct ContentView: View {
     @State private var tab: Tab = .ports
     @State private var query = ""
 
-    func confirmDelete(_ module: NodeModulesInfo) {
+    func confirmDelete(title: String, path: String, sizeBytes: Int64, onConfirm: @escaping () -> Void) {
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Xoá node_modules?"
-            alert.informativeText = "Thư mục này sẽ bị xoá vĩnh viễn:\n\(module.path)\n\nKích thước: \(formatBytes(module.sizeBytes))"
+            alert.messageText = title
+            alert.informativeText = "Thư mục này sẽ bị xoá vĩnh viễn:\n\(path)\n\nKích thước: \(formatBytes(sizeBytes))"
             alert.addButton(withTitle: "Xoá")
             alert.addButton(withTitle: "Huỷ")
 
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn {
-                monitor.deleteNodeModules(module)
+                onConfirm()
             }
         }
     }
@@ -314,6 +389,14 @@ struct ContentView: View {
         guard !query.isEmpty else { return monitor.nodeModules }
         let q = query.lowercased()
         return monitor.nodeModules.filter { $0.path.lowercased().contains(q) }
+    }
+
+    var filteredCaches: [CacheInfo] {
+        guard !query.isEmpty else { return monitor.caches }
+        let q = query.lowercased()
+        return monitor.caches.filter {
+            $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q)
+        }
     }
 
     var body: some View {
@@ -362,7 +445,7 @@ struct ContentView: View {
                                 KillMenu(pid: p.pid, name: p.name, monitor: monitor)
                             }
                         }
-                    } else {
+                    } else if tab == .nodeModules {
                         ForEach(filteredNodeModules) { module in
                             HStack(alignment: .top, spacing: 8) {
                                 VStack(alignment: .leading, spacing: 3) {
@@ -381,7 +464,13 @@ struct ContentView: View {
                                 }
                                 Spacer(minLength: 4)
                                 Button {
-                                    confirmDelete(module)
+                                    confirmDelete(
+                                        title: "Xoá node_modules?",
+                                        path: module.path,
+                                        sizeBytes: module.sizeBytes
+                                    ) {
+                                        monitor.deleteNodeModules(module)
+                                    }
                                 } label: {
                                     Image(systemName: "trash")
                                         .frame(width: 28, height: 28)
@@ -389,6 +478,42 @@ struct ContentView: View {
                                 .buttonStyle(.bordered)
                                 .tint(.red)
                                 .help("Xoá thư mục node_modules này")
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    } else {
+                        ForEach(filteredCaches) { cache in
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text(formatBytes(cache.sizeBytes))
+                                            .font(.system(.body, design: .monospaced).bold())
+                                            .frame(width: 78, alignment: .leading)
+                                        Text(cache.name)
+                                            .font(.caption).foregroundStyle(.secondary)
+                                        Spacer()
+                                    }
+                                    Text(cache.path)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 4)
+                                Button {
+                                    confirmDelete(
+                                        title: "Xoá cache?",
+                                        path: cache.path,
+                                        sizeBytes: cache.sizeBytes
+                                    ) {
+                                        monitor.deleteCache(cache)
+                                    }
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .frame(width: 28, height: 28)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                                .help("Xoá cache này")
                             }
                             .padding(.vertical, 4)
                         }
@@ -403,12 +528,17 @@ struct ContentView: View {
                     case .ports: return "\(filteredPorts.count) ports đang mở"
                     case .processes: return "\(filteredProcesses.count) tiến trình"
                     case .nodeModules: return "\(filteredNodeModules.count) thư mục node_modules"
+                    case .caches: return "\(filteredCaches.count) cache"
                     }
                 }())
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
                 Button {
-                    if tab == .nodeModules { monitor.refreshNodeModules() } else { monitor.refresh() }
+                    switch tab {
+                    case .nodeModules: monitor.refreshNodeModules()
+                    case .caches: monitor.refreshCaches()
+                    default: monitor.refresh()
+                    }
                 } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless)
                 Button { NSApplication.shared.terminate(nil) } label: { Image(systemName: "power") }
@@ -416,10 +546,14 @@ struct ContentView: View {
             }
         }
         .padding(10)
-        .frame(width: 560, height: 600)
+        .frame(width: 640, height: 600)
         .onAppear { monitor.start() }
         .onChange(of: tab) { newTab in
-            if newTab == .nodeModules { monitor.refreshNodeModules() }
+            switch newTab {
+            case .nodeModules: monitor.refreshNodeModules()
+            case .caches: monitor.refreshCaches()
+            default: break
+            }
         }
         .onDisappear { monitor.stop() }
     }

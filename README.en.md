@@ -10,6 +10,7 @@ PortKiller helps you:
 - View the command, PID, user, and bind address for each port.
 - Monitor running processes with current CPU and memory usage.
 - Scan `node_modules` directories under the home folder and sort them by size, largest first.
+- List and delete common npm, Yarn, pnpm, Corepack, and Chrome caches.
 - Search by process name, port, or PID.
 - Send `SIGTERM` for graceful termination or `SIGKILL` for force termination.
 
@@ -57,6 +58,10 @@ The **Processes** tab lists processes sorted by descending CPU usage, with user,
 ### Node Modules
 
 The **Node Modules** tab scans for `node_modules` directories under the home folder, calculates their recursive sizes, and sorts them from largest to smallest. Each row shows the size, direct package count, and path. You can search by path, refresh manually, or click the trash button to delete a directory after confirmation.
+
+### Caches
+
+The **Caches** tab lists existing npm, Yarn, pnpm, Corepack, and Chrome caches. Items are sorted by descending size; each item can be searched, refreshed, or deleted after confirmation.
 
 ## Architecture
 

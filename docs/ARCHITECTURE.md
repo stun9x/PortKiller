@@ -27,6 +27,8 @@ Monitor (@MainActor, ObservableObject)
 
 `NodeModulesInfo` đại diện cho một thư mục `node_modules`, gồm đường dẫn, kích thước đệ quy theo byte và số package trực tiếp.
 
+`CacheInfo` đại diện cho một cache được biết trước của npm, Yarn, pnpm, Corepack hoặc Chrome. App chỉ quét các đường dẫn cố định này và sắp xếp theo kích thước giảm dần.
+
 Hai model conform `Identifiable` và `Hashable` để dùng trực tiếp trong SwiftUI `ForEach`.
 
 ## Quét port
@@ -59,6 +61,8 @@ RSS được đổi từ KB sang MB. Tên process được rút gọn về compo
 Quét `node_modules` chỉ chạy khi người dùng mở tab tương ứng hoặc bấm refresh. Root mặc định là thư mục home; các thư mục con được tính kích thước đệ quy và sắp xếp giảm dần.
 
 Nút xoá yêu cầu xác nhận và chỉ chấp nhận thư mục có tên chính xác là `node_modules`, nằm bên dưới home directory và không phải symbolic link.
+
+Tab **Caches** cũng yêu cầu xác nhận trước khi xoá và chỉ chấp nhận các đường dẫn nằm trong danh sách cache cố định của app.
 
 ## Kill process
 
