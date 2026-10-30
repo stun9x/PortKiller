@@ -23,6 +23,13 @@ struct ProcInfo: Identifiable, Hashable {
     let memMB: Double
 }
 
+struct NodeModulesInfo: Identifiable, Hashable {
+    var id: String { path }
+    let path: String
+    let sizeBytes: Int64
+    let packageCount: Int
+}
+
 // MARK: - Shell helper
 
 func run(_ path: String, _ args: [String]) -> String {
@@ -86,12 +93,74 @@ func scanProcesses() -> [ProcInfo] {
     return result.sorted { $0.cpu > $1.cpu }
 }
 
+func directorySize(_ url: URL) -> Int64 {
+    let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .fileAllocatedSizeKey, .fileSizeKey]
+    guard let enumerator = FileManager.default.enumerator(
+        at: url,
+        includingPropertiesForKeys: keys,
+        options: [.skipsHiddenFiles]
+    ) else { return 0 }
+
+    var total: Int64 = 0
+    for case let fileURL as URL in enumerator {
+        guard let values = try? fileURL.resourceValues(forKeys: Set(keys)) else { continue }
+        if values.isDirectory == true {
+            if values.isSymbolicLink == true { enumerator.skipDescendants() }
+            continue
+        }
+        total += Int64(values.fileAllocatedSize ?? values.fileSize ?? 0)
+    }
+    return total
+}
+
+func packageCount(in url: URL) -> Int {
+    (try? FileManager.default.contentsOfDirectory(
+        at: url,
+        includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+        options: [.skipsHiddenFiles]
+    ).filter { child in
+        guard let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return false }
+        return values.isDirectory == true && values.isSymbolicLink != true
+    }.count) ?? 0
+}
+
+func scanNodeModules(in root: URL) -> [NodeModulesInfo] {
+    let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
+    guard let enumerator = FileManager.default.enumerator(
+        at: root,
+        includingPropertiesForKeys: keys,
+        options: [.skipsHiddenFiles]
+    ) else { return [] }
+
+    var result: [NodeModulesInfo] = []
+    for case let url as URL in enumerator {
+        guard url.lastPathComponent == "node_modules",
+              let values = try? url.resourceValues(forKeys: Set(keys)),
+              values.isDirectory == true,
+              values.isSymbolicLink != true else { continue }
+
+        result.append(NodeModulesInfo(
+            path: url.path,
+            sizeBytes: directorySize(url),
+            packageCount: packageCount(in: url)
+        ))
+        // Nested node_modules belongs to this dependency tree; do not report it again.
+        enumerator.skipDescendants()
+    }
+    return result.sorted { $0.sizeBytes > $1.sizeBytes }
+}
+
+func formatBytes(_ bytes: Int64) -> String {
+    ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+}
+
 // MARK: - Monitor
 
 @MainActor
 final class Monitor: ObservableObject {
     @Published var ports: [PortInfo] = []
     @Published var processes: [ProcInfo] = []
+    @Published var nodeModules: [NodeModulesInfo] = []
     @Published var message: String?
 
     private var timer: Timer?
@@ -120,6 +189,14 @@ final class Monitor: ObservableObject {
         }
     }
 
+    func refreshNodeModules() {
+        let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        Task.detached(priority: .utility) {
+            let modules = scanNodeModules(in: root)
+            await MainActor.run { self.nodeModules = modules }
+        }
+    }
+
     func kill(pid: Int32, name: String, force: Bool) {
         let sig = force ? SIGKILL : SIGTERM
         if Darwin.kill(pid, sig) == 0 {
@@ -137,6 +214,7 @@ final class Monitor: ObservableObject {
 enum Tab: String, CaseIterable, Identifiable {
     case ports = "Ports"
     case processes = "Processes"
+    case nodeModules = "Node Modules"
     var id: String { rawValue }
 }
 
@@ -183,6 +261,12 @@ struct ContentView: View {
         }
     }
 
+    var filteredNodeModules: [NodeModulesInfo] {
+        guard !query.isEmpty else { return monitor.nodeModules }
+        let q = query.lowercased()
+        return monitor.nodeModules.filter { $0.path.lowercased().contains(q) }
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             Picker("", selection: $tab) {
@@ -211,21 +295,40 @@ struct ContentView: View {
                         }
                     }
                 } else {
-                    ForEach(filteredProcesses) { p in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(p.name).lineLimit(1)
-                                Text(verbatim: "PID \(String(p.pid)) • \(p.user)")
-                                    .font(.caption).foregroundStyle(.secondary)
+                    if tab == .processes {
+                        ForEach(filteredProcesses) { p in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(p.name).lineLimit(1)
+                                    Text(verbatim: "PID \(String(p.pid)) • \(p.user)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(String(format: "%.1f%%", p.cpu))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .frame(width: 52, alignment: .trailing)
+                                Text(String(format: "%.0f MB", p.memMB))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .frame(width: 66, alignment: .trailing)
+                                KillMenu(pid: p.pid, name: p.name, monitor: monitor)
                             }
-                            Spacer()
-                            Text(String(format: "%.1f%%", p.cpu))
-                                .font(.system(.caption, design: .monospaced))
-                                .frame(width: 52, alignment: .trailing)
-                            Text(String(format: "%.0f MB", p.memMB))
-                                .font(.system(.caption, design: .monospaced))
-                                .frame(width: 66, alignment: .trailing)
-                            KillMenu(pid: p.pid, name: p.name, monitor: monitor)
+                        }
+                    } else {
+                        ForEach(filteredNodeModules) { module in
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(formatBytes(module.sizeBytes))
+                                        .font(.system(.body, design: .monospaced).bold())
+                                        .frame(width: 78, alignment: .leading)
+                                    Text(verbatim: "\(module.packageCount) packages")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Spacer()
+                                }
+                                Text(module.path)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
                         }
                     }
                 }
@@ -233,12 +336,18 @@ struct ContentView: View {
             .listStyle(.plain)
 
             HStack {
-                Text(monitor.message ?? (tab == .ports
-                     ? "\(filteredPorts.count) ports đang mở"
-                     : "\(filteredProcesses.count) tiến trình"))
+                Text(monitor.message ?? {
+                    switch tab {
+                    case .ports: return "\(filteredPorts.count) ports đang mở"
+                    case .processes: return "\(filteredProcesses.count) tiến trình"
+                    case .nodeModules: return "\(filteredNodeModules.count) thư mục node_modules"
+                    }
+                }())
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()
-                Button { monitor.refresh() } label: { Image(systemName: "arrow.clockwise") }
+                Button {
+                    if tab == .nodeModules { monitor.refreshNodeModules() } else { monitor.refresh() }
+                } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.borderless)
                 Button { NSApplication.shared.terminate(nil) } label: { Image(systemName: "power") }
                     .buttonStyle(.borderless)
@@ -247,6 +356,9 @@ struct ContentView: View {
         .padding(10)
         .frame(width: 440, height: 520)
         .onAppear { monitor.start() }
+        .onChange(of: tab) { newTab in
+            if newTab == .nodeModules { monitor.refreshNodeModules() }
+        }
         .onDisappear { monitor.stop() }
     }
 }

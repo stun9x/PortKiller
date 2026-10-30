@@ -9,6 +9,7 @@ PortKiller helps you:
 - List TCP ports in `LISTEN` state and UDP endpoints.
 - View the command, PID, user, and bind address for each port.
 - Monitor running processes with current CPU and memory usage.
+- Scan `node_modules` directories under the home folder and sort them by size, largest first.
 - Search by process name, port, or PID.
 - Send `SIGTERM` for graceful termination or `SIGKILL` for force termination.
 
@@ -52,6 +53,10 @@ The **Ports** tab refreshes automatically every three seconds. Each row shows th
 ### Processes
 
 The **Processes** tab lists processes sorted by descending CPU usage, with user, CPU, and memory information. Search by name or PID and use the same termination controls.
+
+### Node Modules
+
+The **Node Modules** tab scans for `node_modules` directories under the home folder, calculates their recursive sizes, and sorts them from largest to smallest. Each row shows the size, direct package count, and path. You can search by path and refresh manually.
 
 ## Architecture
 

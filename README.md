@@ -9,6 +9,7 @@ PortKiller giúp bạn:
 - Liệt kê TCP port đang `LISTEN` và các UDP endpoint.
 - Xem command, PID, user và địa chỉ bind của từng port.
 - Theo dõi tiến trình cùng CPU và memory hiện tại.
+- Quét các thư mục `node_modules` trong thư mục home và sắp xếp theo kích thước giảm dần.
 - Tìm kiếm theo tên, port hoặc PID.
 - Gửi `SIGTERM` để dừng mềm hoặc `SIGKILL` để buộc dừng tiến trình.
 
@@ -52,6 +53,10 @@ Tab **Ports** refresh tự động mỗi 3 giây. Mỗi dòng hiển thị port,
 ### Processes
 
 Tab **Processes** hiển thị các tiến trình được sắp xếp theo CPU giảm dần, cùng user, CPU và memory. Có thể tìm theo tên hoặc PID và thực hiện cùng thao tác kill.
+
+### Node Modules
+
+Tab **Node Modules** quét các thư mục `node_modules` bên dưới thư mục home, tính kích thước đệ quy và sắp xếp từ lớn đến bé. Mỗi dòng hiển thị kích thước, số package trực tiếp và đường dẫn. Có thể tìm kiếm theo đường dẫn và refresh thủ công.
 
 ## Kiến trúc
 

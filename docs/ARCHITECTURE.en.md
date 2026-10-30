@@ -25,6 +25,8 @@ Monitor (@MainActor, ObservableObject)
 
 `ProcInfo` represents a process with its PID, name, user, CPU percentage, and memory in MB.
 
+`NodeModulesInfo` represents a `node_modules` directory with its path, recursive byte size, and direct package count.
+
 Both models conform to `Identifiable` and `Hashable` so they can be used directly in SwiftUI `ForEach` views.
 
 ## Port scanning
@@ -53,6 +55,8 @@ RSS is converted from KB to MB. The process name is reduced to the final path co
 ## Concurrency and refresh
 
 `Monitor` is `@MainActor`, keeping all `@Published` changes safe for SwiftUI. System commands run inside a detached task so the UI is not blocked. A timer refreshes the data every three seconds; after a termination request, another refresh runs after 0.6 seconds so the UI can reflect the process exit.
+
+The `node_modules` scan runs only when the corresponding tab is opened or manually refreshed. It uses the home folder as its root, calculates recursive sizes, and sorts results in descending order.
 
 ## Process termination
 

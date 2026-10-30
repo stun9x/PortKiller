@@ -25,6 +25,8 @@ Monitor (@MainActor, ObservableObject)
 
 `ProcInfo` đại diện cho một process với PID, tên, user, CPU percentage và memory theo MB.
 
+`NodeModulesInfo` đại diện cho một thư mục `node_modules`, gồm đường dẫn, kích thước đệ quy theo byte và số package trực tiếp.
+
 Hai model conform `Identifiable` và `Hashable` để dùng trực tiếp trong SwiftUI `ForEach`.
 
 ## Quét port
@@ -53,6 +55,8 @@ RSS được đổi từ KB sang MB. Tên process được rút gọn về compo
 ## Đồng bộ và refresh
 
 `Monitor` là `@MainActor` để mọi thay đổi `@Published` an toàn với SwiftUI. Việc gọi binary hệ thống chạy trong `Task.detached` nhằm tránh block UI. Timer refresh mỗi 3 giây; thao tác kill refresh lại sau 0,6 giây để UI kịp phản ánh process đã kết thúc.
+
+Quét `node_modules` chỉ chạy khi người dùng mở tab tương ứng hoặc bấm refresh. Root mặc định là thư mục home; các thư mục con được tính kích thước đệ quy và sắp xếp giảm dần.
 
 ## Kill process
 
